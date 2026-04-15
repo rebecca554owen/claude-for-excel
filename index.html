@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Office Ai 助手</title>
+  <meta name="description" content="适用于 Microsoft Office 的 AI 助手，可用于 Excel、Word 和 PowerPoint。">
+  <link rel="icon" type="image/png" href="/icon-32.png">
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+  <script>
+    (function () {
+      const shellConfig = {
+        basePath: "/",
+        appSha: "3097f9d48cb4422c86ed4468c033b1ebaf503a65"
+      };
+
+      const originalFetch = window.fetch ? window.fetch.bind(window) : null;
+      const originalBeacon = navigator.sendBeacon ? navigator.sendBeacon.bind(navigator) : null;
+
+      function ensureHistoryMethod(name) {
+        if (window.history && typeof window.history[name] === "function") return;
+        var proto = typeof History !== "undefined" && History.prototype ? History.prototype : Object.getPrototypeOf(window.history);
+        if (proto && typeof proto[name] === "function") {
+          window.history[name] = proto[name].bind(window.history);
+          return;
+        }
+        window.history[name] = function (state, unused, url) {
+          try {
+            if (typeof url !== "string" || !url) return;
+            var nextUrl = new URL(url, window.location.href);
+            if (name === "pushState") {
+              window.location.hash = nextUrl.hash;
+            } else if (nextUrl.hash !== window.location.hash) {
+              window.location.hash = nextUrl.hash;
+            }
+          } catch (error) {
+          }
+        };
+      }
+
+      ensureHistoryMethod("pushState");
+      ensureHistoryMethod("replaceState");
+
+      function resolveUrl(input) {
+        if (typeof input === "string") {
+          return new URL(input, window.location.href);
+        }
+        if (input && typeof input.url === "string") {
+          return new URL(input.url, window.location.href);
+        }
+        return null;
+      }
+
+      function buildJsonResponse(body, status) {
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      function isBlockedRequest(url) {
+        if (!url) return false;
+        if (url.pathname === "/api/version") return true;
+        if (url.pathname === "/api/analytics" || url.pathname === "/api/analytics/") return true;
+        return url.hostname === "prodregistryv2.org" ||
+          url.hostname === "featureassets.org" ||
+          url.hostname === "api.statsigcdn.com" ||
+          url.hostname === "pivot.cometix.dev" ||
+          url.hostname === "pivot.claude.ai";
+      }
+
+      function getBlockedResponseBody(url) {
+        if (!url) return {};
+        if (url.pathname === "/api/version") {
+          return { sha: shellConfig.appSha };
+        }
+        if (url.pathname === "/api/analytics" || url.pathname === "/api/analytics/") {
+          return { ok: true };
+        }
+        if (url.hostname === "featureassets.org" || url.hostname === "api.statsigcdn.com") {
+          return { has_updates: false };
+        }
+        if (url.hostname === "prodregistryv2.org") {
+          return { has_updates: false };
+        }
+        return {};
+      }
+
+      function maybeFixApiRequest(input, init) {
+        if (!init || typeof init.body !== "string") return null;
+        var settings, endpoint;
+        try {
+          settings = JSON.parse(localStorage.getItem("claude_api_settings") || "{}");
+          endpoint = (settings.gateway_url || settings.gatewayUrl || settings.endpoint || "https://gpt-agent.cc").replace(/\/$/, "");
+        } catch (e) {
+          return null;
+        }
+        var url = resolveUrl(input);
+        if (!url || !url.href.startsWith(endpoint)) return null;
+        var body;
+        try {
+          body = JSON.parse(init.body);
+        } catch (e) {
+          return null;
+        }
+        var model = body.model || "";
+        if (model.startsWith("claude-")) return null;
+        if (!body.tools || !Array.isArray(body.tools) || body.tools.length === 0) return null;
+        var fixedTools = body.tools.filter(function (tool) {
+          return tool.name && tool.name.trim() !== "";
+        }).map(function (tool) {
+          if (!tool.input_schema || Object.keys(tool.input_schema).length === 0) {
+            return Object.assign({}, tool, { input_schema: { type: "object", properties: {} } });
+          }
+          return tool;
+        });
+        var newBody = Object.assign({}, body);
+        if (fixedTools.length === 0) {
+          delete newBody.tools;
+          delete newBody.tool_choice;
+        } else {
+          newBody.tools = fixedTools;
+        }
+        return { input: input, init: Object.assign({}, init, { body: JSON.stringify(newBody) }) };
+      }
+
+      if (originalFetch) {
+        window.fetch = function (input, init) {
+          const url = resolveUrl(input);
+          if (url && url.pathname === "/api/version") {
+            return Promise.resolve(buildJsonResponse(getBlockedResponseBody(url), 200));
+          }
+          if (isBlockedRequest(url)) {
+            return Promise.resolve(buildJsonResponse(getBlockedResponseBody(url), 200));
+          }
+          var fixed = maybeFixApiRequest(input, init);
+          if (fixed) {
+            return originalFetch(fixed.input, fixed.init);
+          }
+          return originalFetch(input, init);
+        };
+      }
+
+      if (originalBeacon) {
+        navigator.sendBeacon = function (url, data) {
+          const resolvedUrl = resolveUrl(url);
+          if (isBlockedRequest(resolvedUrl)) return true;
+          return originalBeacon(url, data);
+        };
+      }
+
+      window.__SHELL_CONFIG__ = Object.freeze(shellConfig);
+      window.__PROJECT_BASE__ = shellConfig.basePath;
+    })();
+  </script>
+  <script type="module" crossorigin src="./m-addin/assets/index-DaxcmPIW.js?v=1.0.0"></script>
+  <link rel="stylesheet" crossorigin href="./m-addin/assets/index-tZQJTE4o.css?v=1.0.0">
+</head>
+<body>
+  <div id="react-container" class="h-screen p-3"></div>
+
+  <div id="api-settings-overlay" class="fixed inset-0 bg-black/40 z-50 justify-center items-center" style="display:none">
+    <div class="bg-bg-000 rounded-xl w-[calc(100%-24px)] shadow-[0_4px_16px_rgba(0,0,0,0.15)] border-[0.5px] border-border-200 max-h-[85vh] overflow-y-auto">
+      <div class="p-4">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-sm font-semibold text-text-100">API Mode</h2>
+          <button onclick="window.closeApiSettings()" class="p-1 text-text-300 hover:text-text-100 hover:bg-bg-200 rounded-md transition-colors">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="mb-3">
+          <label class="block text-xs font-medium mb-1.5 text-text-200">Auth Mode</label>
+          <div class="flex rounded-lg border border-border-300 overflow-hidden">
+            <button type="button" id="auth-mode-apikey" onclick="window.setAuthMode('apikey')" class="flex-1 px-2 py-1.5 text-xs font-medium transition-colors bg-bg-200 text-text-100">
+              API Key
+            </button>
+            <button type="button" id="auth-mode-token" onclick="window.setAuthMode('token')" class="flex-1 px-2 py-1.5 text-xs font-medium transition-colors bg-bg-000 text-text-300">
+              Auth Token
+            </button>
+          </div>
+        </div>
+        <div id="apikey-section" class="mb-2.5">
+          <label class="block text-xs font-medium mb-1 text-text-200">API Key</label>
+          <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." class="w-full px-2.5 py-2 text-xs border border-border-300 rounded-lg bg-bg-000 text-text-100 placeholder:text-text-400 focus:outline-none focus:border-accent-main-100">
+        </div>
+        <div id="token-section" class="mb-2.5" style="display:none">
+          <label class="block text-xs font-medium mb-1 text-text-200">Auth Token</label>
+          <input type="password" id="auth-token-input" placeholder="Bearer token..." class="w-full px-2.5 py-2 text-xs border border-border-300 rounded-lg bg-bg-000 text-text-100 placeholder:text-text-400 focus:outline-none focus:border-accent-main-100">
+        </div>
+        <div class="mb-2.5">
+          <label class="block text-xs font-medium mb-1 text-text-200">Base URL</label>
+          <input type="text" id="api-endpoint-input" placeholder="https://gpt-agent.cc" class="w-full px-2.5 py-2 text-xs border border-border-300 rounded-lg bg-bg-000 text-text-100 placeholder:text-text-400 focus:outline-none focus:border-accent-main-100">
+        </div>
+        <div class="mb-2.5">
+          <label class="block text-xs font-medium mb-1 text-text-200">Custom Models</label>
+          <div id="custom-models-list" class="mb-1.5 space-y-1"></div>
+          <div class="flex gap-1.5">
+            <input type="text" id="new-model-id" placeholder="model-id" class="flex-1 px-2 py-1.5 text-xs border border-border-300 rounded-lg bg-bg-000 text-text-100 placeholder:text-text-400 focus:outline-none focus:border-accent-main-100">
+            <input type="text" id="new-model-label" placeholder="Name" class="flex-1 px-2 py-1.5 text-xs border border-border-300 rounded-lg bg-bg-000 text-text-100 placeholder:text-text-400 focus:outline-none focus:border-accent-main-100">
+            <button onclick="window.addCustomModel()" class="px-2 py-1.5 text-xs font-medium bg-bg-200 text-text-200 rounded-lg hover:bg-bg-300 transition-colors">+</button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="block text-xs font-medium mb-1 text-text-200">System Prompt</label>
+          <textarea id="system-prompt-input" placeholder="Custom system prompt (leave empty to use default)..." rows="3" class="w-full px-2.5 py-2 text-xs border border-border-300 rounded-lg bg-bg-000 text-text-100 placeholder:text-text-400 focus:outline-none focus:border-accent-main-100 resize-none"></textarea>
+        </div>
+        <button onclick="window.saveApiSettings()" class="w-full py-2.5 text-xs font-medium border-none rounded-lg cursor-pointer bg-text-100 text-bg-000 hover:bg-text-200 transition-colors">
+          Connect
+        </button>
+        <div id="api-status-msg" class="py-1.5 px-2 rounded-lg text-xs mt-2 text-center" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window._authMode = "apikey";
+
+    window.getCustomModels = function () {
+      const saved = JSON.parse(localStorage.getItem("claude_custom_models") || "null");
+      if (Array.isArray(saved) && saved.length) return saved;
+      return [{ id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" }];
+    };
+
+    window.setAuthMode = function (mode) {
+      window._authMode = mode;
+      const apikeyBtn = document.getElementById("auth-mode-apikey");
+      const tokenBtn = document.getElementById("auth-mode-token");
+      const apikeySection = document.getElementById("apikey-section");
+      const tokenSection = document.getElementById("token-section");
+      if (mode === "apikey") {
+        apikeyBtn.className = "flex-1 px-2 py-1.5 text-xs font-medium transition-colors bg-bg-200 text-text-100";
+        tokenBtn.className = "flex-1 px-2 py-1.5 text-xs font-medium transition-colors bg-bg-000 text-text-300";
+        apikeySection.style.display = "block";
+        tokenSection.style.display = "none";
+      } else {
+        apikeyBtn.className = "flex-1 px-2 py-1.5 text-xs font-medium transition-colors bg-bg-000 text-text-300";
+        tokenBtn.className = "flex-1 px-2 py-1.5 text-xs font-medium transition-colors bg-bg-200 text-text-100";
+        apikeySection.style.display = "none";
+        tokenSection.style.display = "block";
+      }
+    };
+
+    window.renderCustomModels = function () {
+      const list = document.getElementById("custom-models-list");
+      const models = window.getCustomModels();
+      if (!models.length) {
+        list.innerHTML = '<div class="text-xs text-text-400 py-1">No custom models added</div>';
+        return;
+      }
+      list.innerHTML = models.map((model, index) => `
+        <div class="flex items-center justify-between px-2 py-1.5 bg-bg-100 rounded-lg">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium text-text-200 truncate">${model.label}</div>
+            <div class="text-xs text-text-400 truncate">${model.id}</div>
+          </div>
+          <button onclick="window.removeCustomModel(${index})" class="ml-2 p-1 text-text-400 hover:text-text-100 hover:bg-bg-200 rounded transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      `).join("");
+    };
+
+    window.addCustomModel = function () {
+      const idInput = document.getElementById("new-model-id");
+      const labelInput = document.getElementById("new-model-label");
+      const id = idInput.value.trim();
+      const label = labelInput.value.trim() || id;
+      if (!id) return;
+      const models = window.getCustomModels();
+      if (!models.find((model) => model.id === id)) {
+        models.push({ id, label });
+        localStorage.setItem("claude_custom_models", JSON.stringify(models));
+      }
+      idInput.value = "";
+      labelInput.value = "";
+      window.renderCustomModels();
+    };
+
+    window.removeCustomModel = function (index) {
+      const models = window.getCustomModels();
+      models.splice(index, 1);
+      localStorage.setItem("claude_custom_models", JSON.stringify(models));
+      window.renderCustomModels();
+    };
+
+    window.openApiSettings = function () {
+      const overlay = document.getElementById("api-settings-overlay");
+      const saved = JSON.parse(localStorage.getItem("claude_api_settings") || "{}");
+      const authMode = saved.authMode || ((saved.gateway_token || saved.gatewayToken || saved.authToken) ? "token" : "apikey");
+      overlay.style.display = "flex";
+      window.setAuthMode(authMode);
+      document.getElementById("api-key-input").value = saved.apiKey || "";
+      document.getElementById("auth-token-input").value = saved.gateway_token || saved.gatewayToken || saved.authToken || "";
+      document.getElementById("api-endpoint-input").value = saved.gateway_url || saved.gatewayUrl || saved.endpoint || "https://gpt-agent.cc";
+      document.getElementById("system-prompt-input").value = saved.systemPrompt || "";
+      window.renderCustomModels();
+      document.getElementById(authMode === "token" ? "auth-token-input" : "api-key-input").focus();
+    };
+
+    window.closeApiSettings = function () {
+      document.getElementById("api-settings-overlay").style.display = "none";
+    };
+
+    window.saveApiSettings = function () {
+      const authMode = window._authMode;
+      const apiKey = document.getElementById("api-key-input").value.trim();
+      const authToken = document.getElementById("auth-token-input").value.trim();
+      const endpoint = document.getElementById("api-endpoint-input").value.trim() || "https://gpt-agent.cc";
+      const systemPrompt = document.getElementById("system-prompt-input").value.trim();
+      const statusEl = document.getElementById("api-status-msg");
+      const customModels = window.getCustomModels();
+      const selectedModelId = customModels[0] && customModels[0].id ? customModels[0].id : "";
+
+      if (authMode === "apikey" && !apiKey) {
+        statusEl.style.display = "block";
+        statusEl.style.background = "#fee2e2";
+        statusEl.style.color = "#991b1b";
+        statusEl.textContent = "Please enter API Key";
+        return;
+      }
+      if (authMode === "token" && !authToken) {
+        statusEl.style.display = "block";
+        statusEl.style.background = "#fee2e2";
+        statusEl.style.color = "#991b1b";
+        statusEl.textContent = "Please enter Auth Token";
+        return;
+      }
+
+      localStorage.setItem("claude_api_settings", JSON.stringify({
+        authMode,
+        apiKey: authMode === "apikey" ? apiKey : "",
+        authToken: authMode === "token" ? authToken : "",
+        gateway_token: authMode === "token" ? authToken : "",
+        gatewayToken: authMode === "token" ? authToken : "",
+        endpoint,
+        gateway_url: endpoint,
+        gatewayUrl: endpoint,
+        selectedModelId,
+        systemPrompt
+      }));
+
+      statusEl.style.display = "block";
+      statusEl.style.background = "#d1fae5";
+      statusEl.style.color = "#065f46";
+      statusEl.textContent = "Connected! Reloading...";
+
+      window.postMessage({ type: "API_MODE_ENABLED", authMode, apiKey, authToken, endpoint }, "*");
+
+      setTimeout(() => {
+        window.closeApiSettings();
+        const rootPath = window.location.pathname
+          .replace(/\/auth\/login\/?$/, "/")
+          .replace(/\/terms\/?$/, "/")
+          .replace(/\/onboarding\/?$/, "/")
+          .replace(/\/auth\/callback\/?$/, "/")
+          .replace(/\/index\.html$/, "/");
+        const targetPath = rootPath === "/" ? window.__PROJECT_BASE__ : rootPath;
+        window.location.assign(targetPath + window.location.search + window.location.hash);
+      }, 400);
+    };
+
+    document.getElementById("api-settings-overlay").addEventListener("click", function (event) {
+      if (event.target === this) window.closeApiSettings();
+    });
+  </script>
+
+
+  <script>
+    let isTaskpaneVisible = false;
+
+    Office?.onReady(() => {
+      if (Office?.addin?.onVisibilityModeChanged) {
+        Office.addin.onVisibilityModeChanged((args) => {
+          isTaskpaneVisible = args.visibilityMode === "Taskpane";
+        });
+      }
+      if (Office?.actions?.associate) {
+        Office.actions.associate("ShowTaskpane", (event) => {
+          if (event?.completed) event.completed();
+          isTaskpaneVisible = !isTaskpaneVisible;
+          if (isTaskpaneVisible) {
+            return Office.addin?.showAsTaskpane()
+              .then(() => window.postMessage({ type: "KEYBOARD_SHORTCUT_TRIGGERED", action: "ShowTaskpane" }, "*"))
+              .catch((error) => error.code);
+          }
+          return Office.addin?.hide()
+            .then(() => window.postMessage({ type: "KEYBOARD_SHORTCUT_TRIGGERED", action: "HideTaskpane" }, "*"))
+            .catch((error) => error.code);
+        });
+      }
+    });
+  </script>
+</body>
+</html>

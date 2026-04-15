@@ -1,0 +1,8 @@
+node_modules
+dist
+.DS_Store
+findings.md
+progress.md
+task_plan.md
+CLAUDE.md
+/.claude
